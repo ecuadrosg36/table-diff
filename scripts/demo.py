@@ -78,6 +78,7 @@ def main():
     }
     from table_diff.adapters import ident
 
+    pg.execute("DROP VIEW IF EXISTS probe")
     pg.execute("DROP TABLE IF EXISTS trips")
     pg.execute(
         "CREATE TABLE trips (" + ",".join(f"{ident(r[0])} {mapping[r[1]]}" for r in desc) + ")"
@@ -181,7 +182,9 @@ def main():
             b.close()
         assert probe["differing_keys"] == 100
         assert column in probe["samples"][0]["columns"]
-        checks[label] = dict(differing_keys=100, exact_column=column)
+        checks[label] = dict(
+            differing_keys=probe["differing_keys"], exact_column=column, actual_output=probe
+        )
     manifest["verification"] = checks
     (ROOT / "docs/demo-manifest.json").write_text(
         json.dumps(manifest, indent=2, default=str) + "\n"

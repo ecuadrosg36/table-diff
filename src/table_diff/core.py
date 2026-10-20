@@ -1,5 +1,6 @@
 """Staged multiset comparison. No raw full-table transfers."""
 
+from collections import Counter, defaultdict
 from dataclasses import asdict
 
 from .adapters import Adapter, Policy, family, ident, literal, normalized, table_name
@@ -86,11 +87,14 @@ def compare(
         summaries(db, base, "_key", where_days) for db, base in zip((source, target), bases)
     ]
     candidates = key_summaries[0].keys() | key_summaries[1].keys()
+    paired_differences = []
     for key in sorted(candidates):
         ks = [{key: side[key]} if key in side else {} for side in key_summaries]
         if ks[0] == ks[1]:
             continue
         where = f"_key = {literal(key)}"
+        if ks[0] and ks[1]:
+            paired_differences.append(key)
         result["differing_keys"] += 1
         result["missing_source_keys"] += int(not ks[0])
         result["missing_target_keys"] += int(not ks[1])
@@ -118,6 +122,41 @@ def compare(
                 truncated=any(len(r) == 21 for r in rows),
             )
         )
+    # Resolve every present-on-both-sides differing key exactly. Transfer only
+    # normalized differing rows, grouped as variants; never transfer an unfiltered table.
+    exact_source = exact_target = 0
+    column_counts = Counter()
+    for offset in range(0, len(paired_differences), 500):
+        batch = paired_differences[offset : offset + 500]
+        where = "_key IN (" + ",".join(literal(k) for k in batch) + ")"
+        values = ", ".join(ident(c) for c in columns)
+        variants = []
+        for db, base in zip((source, target), bases):
+            groups = defaultdict(Counter)
+            for row in db.query(
+                f"WITH n AS ({base}) SELECT _key, {values}, count(*) FROM n "
+                f"WHERE {where} GROUP BY _key, {values}"
+            ):
+                groups[row[0]][tuple(row[1:-1])] = row[-1]
+            variants.append(groups)
+        for key in batch:
+            left, right = variants[0][key], variants[1][key]
+            exact_source += sum((left - right).values())
+            exact_target += sum((right - left).values())
+            # For duplicate groups, compare per-column multisets without inventing
+            # a pairing between rows that share a key.
+            for i, column in enumerate(columns):
+                marginals = []
+                for side in (left, right):
+                    marginal = Counter()
+                    for row, count in side.items():
+                        marginal[row[i]] += count
+                    marginals.append(marginal)
+                if marginals[0] != marginals[1]:
+                    column_counts[column] += 1
+    result["exact_unmatched_source_variants_rows"] = exact_source
+    result["exact_unmatched_target_variants_rows"] = exact_target
+    result["exact_column_multiset_differing_keys"] = dict(column_counts)
     result["different"] = bool(
         bad_days or result["duplicate_source_keys"] or result["duplicate_target_keys"]
     )

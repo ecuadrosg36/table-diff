@@ -46,6 +46,9 @@ def test_missing_changed_duplicate(pair):
     assert r["missing_target_keys"] == 1
     assert r["duplicate_target_keys"] == 1
     assert set(r["samples"][0]["columns"]) == {"fare", "note"}
+    assert r["exact_unmatched_source_variants_rows"] == 1
+    assert r["exact_unmatched_target_variants_rows"] == 2
+    assert r["exact_column_multiset_differing_keys"]["fare"] == 1
 
 
 def test_policy(pair):

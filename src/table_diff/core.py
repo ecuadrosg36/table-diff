@@ -44,16 +44,11 @@ def compare(
     def summaries(db, base, group, where="TRUE"):
         # Sum four 32-bit limbs; commutative and duplicate-sensitive, unlike XOR.
         limbs = ", ".join(
-            f"sum(CAST(('x' || substr(_hash,{i},8)) AS bit(32))::bigint)"
+            f"sum(('x' || substr(_hash,{i},8))::bit(32)::bigint)"
             if db.postgres
             else f"sum(CAST('0x' || substr(_hash,{i},8) AS BIGINT))"
             for i in (1, 9, 17, 25)
         )
-        # PostgreSQL casts each limb before summing.
-        if db.postgres:
-            limbs = ", ".join(
-                f"sum(('x' || substr(_hash,{i},8))::bit(32)::bigint)" for i in (1, 9, 17, 25)
-            )
         return {
             r[0]: tuple(r[1:])
             for r in db.query(
@@ -85,7 +80,7 @@ def compare(
             f"WITH n AS ({base}) SELECT count(*) FROM "
             "(SELECT _key FROM n GROUP BY _key HAVING count(*) > 1) d"
         )[0][0]
-    # Keys may move across day boundaries: collect candidates by day, then compare globally.
+    # Union mismatching days before key comparison to avoid double counting day moves.
     where_days = "_day IN (" + ",".join(literal(d) for d in bad_days) + ")" if bad_days else "FALSE"
     key_summaries = [
         summaries(db, base, "_key", where_days) for db, base in zip((source, target), bases)

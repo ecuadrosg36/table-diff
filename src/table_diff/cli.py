@@ -1,6 +1,7 @@
 import html
 import json
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
@@ -8,6 +9,11 @@ from .adapters import Database, Policy
 from .core import compare as run_compare
 
 app = typer.Typer(no_args_is_help=True)
+
+
+@app.callback()
+def main():
+    """Reconcile database tables with staged SQL fingerprints."""
 
 
 def markdown(result: dict) -> str:
@@ -29,11 +35,11 @@ def markdown(result: dict) -> str:
 
 @app.command()
 def compare(
-    source: str,
-    target: str,
-    table: str,
-    key: str,
-    date_col: str,
+    source: Annotated[str, typer.Option()],
+    target: Annotated[str, typer.Option()],
+    table: Annotated[str, typer.Option()],
+    key: Annotated[str, typer.Option()],
+    date_col: Annotated[str, typer.Option()],
     report: Path = Path("report.md"),
     float_digits: int = 6,
     timezone: str = "UTC",

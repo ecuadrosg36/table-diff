@@ -51,6 +51,8 @@ def main():
             ],
             check=True,
         )
+    else:
+        subprocess.run([docker, "start", name], check=True, capture_output=True, timeout=30)
     for attempt in range(60):
         try:
             pg = psycopg.connect(DSN, autocommit=True)

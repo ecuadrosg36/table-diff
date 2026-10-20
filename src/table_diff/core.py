@@ -75,18 +75,28 @@ def compare(
         samples=[],
         schema=schemas,
     )
-    # Duplicate counts are global, including matching days, without row transfer.
+    # Inventory duplicate key groups globally, including otherwise matching days.
+    duplicate_keys = set()
     for side, db, base in zip(("source", "target"), (source, target), bases):
-        result[f"duplicate_{side}_keys"] = db.query(
-            f"WITH n AS ({base}) SELECT count(*) FROM "
-            "(SELECT _key FROM n GROUP BY _key HAVING count(*) > 1) d"
-        )[0][0]
+        duplicates = db.query(
+            f"WITH n AS ({base}) SELECT _key FROM n GROUP BY _key HAVING count(*) > 1"
+        )
+        result[f"duplicate_{side}_keys"] = len(duplicates)
+        duplicate_keys.update(r[0] for r in duplicates)
     # Union mismatching days before key comparison to avoid double counting day moves.
     where_days = "_day IN (" + ",".join(literal(d) for d in bad_days) + ")" if bad_days else "FALSE"
     key_summaries = [
         summaries(db, base, "_key", where_days) for db, base in zip((source, target), bases)
     ]
     candidates = key_summaries[0].keys() | key_summaries[1].keys()
+    # A duplicate key can also occur on a matching day. Reconcile its complete
+    # group, or a removed duplicate could be mislabeled as a missing key.
+    duplicate_candidates = sorted(candidates & duplicate_keys)
+    for offset in range(0, len(duplicate_candidates), 500):
+        batch = duplicate_candidates[offset : offset + 500]
+        where = "_key IN (" + ",".join(literal(k) for k in batch) + ")"
+        for db, base, summary in zip((source, target), bases, key_summaries):
+            summary.update(summaries(db, base, "_key", where))
     paired_differences = []
     for key in sorted(candidates):
         ks = [{key: side[key]} if key in side else {} for side in key_summaries]

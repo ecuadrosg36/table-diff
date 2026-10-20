@@ -181,3 +181,14 @@ def test_cross_adapter_timezone_and_differences(tmp_path):
     assert result["differing_keys"] == 2
     assert result["missing_source_keys"] == 1
     assert result["samples"][0]["columns"] == ["amount", "note"]
+
+
+def test_duplicate_on_matching_day_is_not_missing_key(pair):
+    c = duckdb.connect(str(pair[0]))
+    c.execute("INSERT INTO trips VALUES (1, '2024-01-03', 1, 'duplicate')")
+    c.close()
+    r = run(pair)
+    assert r["differing_keys"] == 1
+    assert r["missing_target_keys"] == 0
+    assert r["duplicate_source_keys"] == 1
+    assert r["exact_unmatched_source_variants_rows"] == 1

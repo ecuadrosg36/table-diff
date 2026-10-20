@@ -192,3 +192,61 @@ def test_duplicate_on_matching_day_is_not_missing_key(pair):
     assert r["missing_target_keys"] == 0
     assert r["duplicate_source_keys"] == 1
     assert r["exact_unmatched_source_variants_rows"] == 1
+
+
+@pytest.mark.parametrize("postgres", [False, True])
+def test_metadata_column_names_and_date_style(tmp_path, postgres):
+    if postgres and not os.getenv("TEST_POSTGRES_DSN"):
+        pytest.skip("requires Docker Postgres")
+    paths = [tmp_path / "reserved-source.db", tmp_path / "reserved-target.db"]
+    schema = (
+        "CREATE TABLE reserved_columns (_key INTEGER, _day DATE, _hash VARCHAR, _value_0 VARCHAR)"
+    )
+    insert = "INSERT INTO reserved_columns VALUES (1, DATE '2024-01-31', 'original', 'user alias'), (2, NULL, '', NULL)"
+    c = duckdb.connect(str(paths[0]))
+    c.execute(schema)
+    c.execute(insert)
+    c.close()
+    if postgres:
+        import psycopg
+
+        connection = os.environ["TEST_POSTGRES_DSN"]
+        with psycopg.connect(connection, autocommit=True) as pg:
+            pg.execute("DROP TABLE IF EXISTS reserved_columns")
+            pg.execute(schema)
+            pg.execute(insert)
+    else:
+        connection = f"duckdb://{paths[1]}"
+        c = duckdb.connect(str(paths[1]))
+        c.execute(schema)
+        c.execute(insert)
+        c.close()
+
+    def check():
+        a, b = Database(f"duckdb://{paths[0]}"), Database(connection)
+        try:
+            if postgres:
+                b.conn.execute("SET LOCAL DateStyle = 'SQL, DMY'")
+                assert b.query("SHOW DateStyle")[0][0] == "SQL, DMY"
+                # Prove this session would render a generic DATE cast differently.
+                assert b.query("SELECT CAST(DATE '2024-01-31' AS VARCHAR)")[0][0] == "31/01/2024"
+            return compare(a, b, "reserved_columns", ["_key"], "_day")
+        finally:
+            a.close()
+            b.close()
+
+    assert not check()["different"]
+    if postgres:
+        with psycopg.connect(connection, autocommit=True) as c:
+            c.execute("UPDATE reserved_columns SET _hash='changed' WHERE _key=1")
+    else:
+        c = duckdb.connect(str(paths[1]))
+        c.execute("UPDATE reserved_columns SET _hash='changed' WHERE _key=1")
+        c.close()
+    result = check()
+    assert result["differing_keys"] == 1
+    assert result["samples"][0]["columns"] == ["_hash"]
+    assert result["samples"][0]["source"][0] != result["samples"][0]["target"][0]
+    assert result["exact_column_multiset_differing_keys"] == {"_hash": 1}
+    assert result["exact_unmatched_source_variants_rows"] == 1
+    assert result["exact_unmatched_target_variants_rows"] == 1

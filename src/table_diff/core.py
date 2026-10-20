@@ -28,6 +28,10 @@ def compare(
     for c in columns:
         if family(schemas[0][c]) != family(schemas[1][c]):
             raise ValueError(f"Incompatible column type: {c}")
+    # Project user data into generated aliases, never its original names.
+    # The normalized relation contains only these aliases and fixed metadata.
+    value_aliases = [ident(f"_value_{i}") for i in range(len(columns))]
+    values = ", ".join(value_aliases)
     bases = []
     for db, schema in zip((source, target), schemas):
         expressions = {c: normalized(c, schema[c], db.postgres, policy) for c in columns}
@@ -36,10 +40,12 @@ def compare(
         day = f"substr({day}, 1, 14)" if family(schema[date_col]) == "timestamp" else day
         row = " || ".join(expressions[c] for c in columns)
         key = " || ".join(expressions[c] for c in keys)
-        values = ", ".join(f"{expressions[c]} AS {ident(c)}" for c in columns)
+        projected_values = ", ".join(
+            f"{expressions[c]} AS {alias}" for c, alias in zip(columns, value_aliases)
+        )
         bases.append(
             f"SELECT {day} AS _day, {key} AS _key, md5({row}) AS _hash, "
-            f"{values} FROM {table_name(table)}"
+            f"{projected_values} FROM {table_name(table)}"
         )
 
     def summaries(db, base, group, where="TRUE"):
@@ -112,7 +118,6 @@ def compare(
             continue
         # Only bounded differing-key samples leave the databases. Fetch distinct
         # normalized variants with multiplicities, capped to avoid giant duplicate groups.
-        values = ", ".join(ident(c) for c in columns)
         rows = [
             db.query(
                 f"WITH n AS ({base}) SELECT {values}, count(*) FROM n "
@@ -139,7 +144,6 @@ def compare(
     for offset in range(0, len(paired_differences), 500):
         batch = paired_differences[offset : offset + 500]
         where = "_key IN (" + ",".join(literal(k) for k in batch) + ")"
-        values = ", ".join(ident(c) for c in columns)
         variants = []
         for db, base in zip((source, target), bases):
             groups = defaultdict(Counter)

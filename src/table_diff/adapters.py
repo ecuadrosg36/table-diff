@@ -96,6 +96,8 @@ def normalized(col: str, dtype: str, pg: bool, p: Policy) -> str:
             if pg
             else f"strftime({utc}, '%Y-%m-%dT%H:%M:%S.%f')"
         )
+    elif kind == "date":
+        s = f"to_char({c}, 'YYYY-MM-DD')" if pg else f"strftime({c}, '%Y-%m-%d')"
     elif kind == "boolean":
         s = f"CASE WHEN {c} THEN 'true' WHEN NOT {c} THEN 'false' END"
     else:

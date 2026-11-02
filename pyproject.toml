@@ -1,0 +1,30 @@
+[project]
+name = "table-diff"
+version = "0.1.0"
+description = "Prove a data migration is right: compare two tables by hash, from partition to row to cell."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Enmanuel Cuadros" }]
+dependencies = ["duckdb>=1.1"]
+
+[project.scripts]
+table-diff = "table_diff.cli:main"
+table-diff-demo = "table_diff.demo:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.6"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.pytest.ini_options]
+addopts = "--cov=table_diff --cov-report=term-missing"
